@@ -18,6 +18,22 @@ directory = "public"
 # 显式指定绑定名，确保在 Worker 中通过 env.ASSETS 可用
 binding = "ASSETS"
 
+#cf新增日志
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
 
 # R2 存储桶绑定（用于保存完整 EML 内容）
 #[[r2_buckets]]
