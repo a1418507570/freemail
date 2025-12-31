@@ -1190,7 +1190,7 @@ window.showEmail = async (id) => {
     const rawText = (email.content || '').toString();
     const plainForCode = `${email.subject || ''} ` + (rawHtml || rawText).replace(/<[^>]+>/g, ' ').replace(/\s+/g,' ').trim();
     const code = extractCode(plainForCode);
-    const downloadBtn = email.download ? `
+    const downloadBtn = false ? `
       <a class="btn btn-ghost btn-sm" href="${email.download}" download>
         <span class="btn-icon">⬇️</span>
         <span>下载原始邮件</span>

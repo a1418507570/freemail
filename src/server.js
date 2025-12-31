@@ -109,10 +109,23 @@ export default {
         htmlContent = '';
       }
 
+      // 内容裁剪策略：限制 500KB，避免超过 D1 1MB 行限制
+      const truncateContent = (content, maxBytes, label) => {
+        if (!content) return '';
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(content);
+        if (bytes.length <= maxBytes) return content;
+        const truncated = new TextDecoder().decode(bytes.slice(0, maxBytes));
+        return truncated + `\n\n[内容已截断，完整${label}邮件超过 D1 1MB 限制]`;
+      };
+
+      textContent = truncateContent(textContent, 500 * 1024, 'text');
+      htmlContent = truncateContent(htmlContent, 500 * 1024, 'html');
+
       const mailbox = extractEmail(resolvedRecipient || toHeader);
       const sender = extractEmail(fromHeader);
 
-      // 写入到 R2：完整 EML
+      // 写入到 R2：完整 EML（灰度开关控制）
       const r2 = env.MAIL_EML;
       let objectKey = '';
       try {
@@ -126,7 +139,8 @@ export default {
         const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
         objectKey = `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
-        if (r2 && rawBuffer) {
+        // 灰度开关：USE_R2='true' 时写入 R2，'false' 时跳过
+        if (env.USE_R2 === 'true' && r2 && rawBuffer) {
           await r2.put(objectKey, new Uint8Array(rawBuffer), { httpMetadata: { contentType: 'message/rfc822' } });
         }
       } catch (e) {
@@ -176,8 +190,8 @@ export default {
 
       // 直接使用标准列名插入（表结构已在初始化时固定）
       await DB.prepare(`
-        INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key, email_content, text_content, html_content)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         mailboxId,
         sender,
@@ -186,7 +200,10 @@ export default {
         verificationCode || null,
         preview || null,
         'mail-eml',
-        objectKey || ''
+        env.USE_R2 === 'true' ? objectKey : '',
+        rawBuffer ? new TextDecoder().decode(rawBuffer) : '',
+        textContent,
+        htmlContent
       ).run();
     } catch (err) {
       console.error('Email event handling error:', err);

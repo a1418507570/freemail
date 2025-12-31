@@ -432,7 +432,7 @@ function showEmailModal(email) {
           <span>复制验证码</span>
         </button>
       ` : ''}
-      ${email.download ? `<a class="btn btn-ghost btn-sm" href="${email.download}" download><span class="btn-icon">⬇️</span><span>下载原始邮件</span></a>` : ''}
+      ${false ? `<a class="btn btn-ghost btn-sm" href="${email.download}" download><span class="btn-icon">⬇️</span><span>下载原始邮件</span></a>` : ''}
     </div>
     <div id="email-render-host"></div>
   `;

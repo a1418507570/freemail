@@ -507,32 +507,29 @@ async function delegateApiRequest(context) {
 
   // 访客只允许读取模拟数据
   if ((authPayload.role || 'admin') === 'guest') {
-    return handleApiRequest(request, DB, MAIL_DOMAINS, { 
-      mockOnly: true, 
-      resendApiKey: RESEND_API_KEY, 
-      adminName: ADMIN_NAME, 
-      r2: env.MAIL_EML, 
-      authPayload 
+    return handleApiRequest(request, DB, MAIL_DOMAINS, {
+      mockOnly: true,
+      resendApiKey: RESEND_API_KEY,
+      adminName: ADMIN_NAME,
+      authPayload
     });
   }
 
   // 邮箱用户只能访问自己的邮箱数据
   if (authPayload.role === 'mailbox') {
-    return handleApiRequest(request, DB, MAIL_DOMAINS, { 
-      mockOnly: false, 
-      resendApiKey: RESEND_API_KEY, 
-      adminName: ADMIN_NAME, 
-      r2: env.MAIL_EML, 
+    return handleApiRequest(request, DB, MAIL_DOMAINS, {
+      mockOnly: false,
+      resendApiKey: RESEND_API_KEY,
+      adminName: ADMIN_NAME,
       authPayload,
       mailboxOnly: true
     });
   }
-  
-  return handleApiRequest(request, DB, MAIL_DOMAINS, { 
-    mockOnly: false, 
-    resendApiKey: RESEND_API_KEY, 
-    adminName: ADMIN_NAME, 
-    r2: env.MAIL_EML, 
-    authPayload 
+
+  return handleApiRequest(request, DB, MAIL_DOMAINS, {
+    mockOnly: false,
+    resendApiKey: RESEND_API_KEY,
+    adminName: ADMIN_NAME,
+    authPayload
   });
 }

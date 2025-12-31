@@ -1,10 +1,11 @@
 import { extractEmail, generateRandomId } from './commonUtils.js';
 import { buildMockEmails, buildMockMailboxes, buildMockEmailDetail } from './mockData.js';
-import { getOrCreateMailboxId, getMailboxIdByAddress, recordSentEmail, updateSentEmail, toggleMailboxPin, 
-  listUsersWithCounts, createUser, updateUser, deleteUser, assignMailboxToUser, getUserMailboxes, unassignMailboxFromUser, 
+import { getOrCreateMailboxId, getMailboxIdByAddress, recordSentEmail, updateSentEmail, toggleMailboxPin,
+  listUsersWithCounts, createUser, updateUser, deleteUser, assignMailboxToUser, getUserMailboxes, unassignMailboxFromUser,
   checkMailboxOwnership, getTotalMailboxCount } from './database.js';
 import { parseEmailBody, extractVerificationCode } from './emailParser.js';
 import { sendEmailWithResend, sendBatchWithResend, sendEmailWithAutoResend, sendBatchWithAutoResend, getEmailFromResend, updateEmailInResend, cancelEmailInResend } from './emailSender.js';
+import { getCachedEmailContent, cacheEmailContent } from './cacheHelper.js';
 
 export async function handleApiRequest(request, db, mailDomains, options = { mockOnly: false, resendApiKey: '', adminName: '', r2: null, authPayload: null, mailboxOnly: false }) {
   const url = new URL(request.url);
@@ -716,7 +717,11 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         return Response.json(results || []);
       }catch(e){
         const { results } = await db.prepare(`
-          SELECT id, sender, subject, content, html_content, received_at, is_read
+          SELECT id, sender, subject, received_at, is_read,
+                 CASE WHEN content IS NOT NULL AND content <> ''
+                      THEN SUBSTR(content, 1, 120)
+                      ELSE SUBSTR(COALESCE(html_content, ''), 1, 120)
+                 END AS preview
           FROM messages WHERE id IN (${placeholders})${timeFilter}
         `).bind(...ids, ...timeParam).all();
         return Response.json(results || []);
@@ -1095,25 +1100,6 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
     }
   }
 
-  // 下载 EML（从 R2 获取）- 必须在通用邮件详情处理器之前
-  if (request.method === 'GET' && path.startsWith('/api/email/') && path.endsWith('/download')){
-    if (options.mockOnly) return new Response('演示模式不可下载', { status: 403 });
-    const id = path.split('/')[3];
-    const { results } = await db.prepare('SELECT r2_bucket, r2_object_key FROM messages WHERE id = ?').bind(id).all();
-    const row = (results||[])[0];
-    if (!row || !row.r2_object_key) return new Response('未找到对象', { status: 404 });
-    try{
-      const r2 = options.r2;
-      if (!r2) return new Response('R2 未绑定', { status: 500 });
-      const obj = await r2.get(row.r2_object_key);
-      if (!obj) return new Response('对象不存在', { status: 404 });
-      const headers = new Headers({ 'Content-Type': 'message/rfc822' });
-      headers.set('Content-Disposition', `attachment; filename="${String(row.r2_object_key).split('/').pop()}"`);
-      return new Response(obj.body, { headers });
-    }catch(e){
-      return new Response('下载失败', { status: 500 });
-    }
-  }
 
   if (request.method === 'GET' && path.startsWith('/api/email/')) {
     const emailId = path.split('/')[3];
@@ -1121,6 +1107,18 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       return Response.json(buildMockEmailDetail(emailId));
     }
     try{
+      // 检查缓存（非 mailboxOnly 模式下使用缓存）
+      if (!isMailboxOnly) {
+        const cached = getCachedEmailContent(emailId);
+        if (cached) {
+          console.log(`[Cache] Hit: email_content_${emailId}`);
+          // 更新已读状态（异步，不阻塞响应）
+          db.prepare(`UPDATE messages SET is_read = 1 WHERE id = ?`).bind(emailId).run();
+          return Response.json(cached);
+        }
+        console.log(`[Cache] Miss: email_content_${emailId}`);
+      }
+
       // 邮箱用户需要验证邮件是否在24小时内
       let timeFilter = '';
       let timeParam = [];
@@ -1129,9 +1127,9 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
         timeFilter = ' AND received_at >= ?';
         timeParam = [twentyFourHoursAgo];
       }
-      
+
       const { results } = await db.prepare(`
-        SELECT id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
+        SELECT id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read, text_content, html_content
         FROM messages WHERE id = ?${timeFilter}
       `).bind(emailId, ...timeParam).all();
       if (results.length === 0) {
@@ -1142,35 +1140,19 @@ export async function handleApiRequest(request, db, mailDomains, options = { moc
       }
       await db.prepare(`UPDATE messages SET is_read = 1 WHERE id = ?`).bind(emailId).run();
       const row = results[0];
-      let content = '';
-      let html_content = '';
-      // 若存在 R2 对象，尝试解析正文并返回兼容字段
-      try{
-        if (row.r2_object_key && options.r2){
-          const obj = await options.r2.get(row.r2_object_key);
-          if (obj){
-            let raw = '';
-            if (typeof obj.text === 'function') raw = await obj.text();
-            else if (typeof obj.arrayBuffer === 'function') raw = await new Response(await obj.arrayBuffer()).text();
-            else raw = await new Response(obj.body).text();
-            const parsed = parseEmailBody(raw || '');
-            content = parsed.text || '';
-            html_content = parsed.html || '';
-          }
-        }
-      }catch(_){ }
+      let content = row.text_content || '';
+      let html_content = row.html_content || '';
 
-      // 当未绑定 R2 或解析结果为空时，回退读取数据库中的 content/html_content（兼容旧数据/无 R2 环境）
-      if ((!content && !html_content)){
-        try{
-          const fallback = await db.prepare('SELECT content, html_content FROM messages WHERE id = ?').bind(emailId).all();
-          const fr = (fallback?.results || [])[0] || {};
-          content = content || fr.content || '';
-          html_content = html_content || fr.html_content || '';
-        }catch(_){ /* 忽略：旧表可能缺少字段 */ }
+      // 注意：R2 回退逻辑已移除（R2 到 D1 迁移完成）
+      // 历史邮件如需从 R2 读取，请参考 git 历史恢复相关代码
+
+      // 构建响应数据并缓存（非 mailboxOnly 模式）
+      const responseData = { ...row, content, html_content };
+      if (!isMailboxOnly) {
+        cacheEmailContent(emailId, responseData);
       }
 
-      return Response.json({ ...row, content, html_content, download: row.r2_object_key ? `/api/email/${emailId}/download` : '' });
+      return Response.json(responseData);
     }catch(e){
       const { results } = await db.prepare(`
         SELECT id, sender, subject, content, html_content, received_at, is_read
@@ -1382,10 +1364,10 @@ export async function handleEmailReceive(request, db, env) {
       verificationCode = extractVerificationCode({ subject, text, html });
     } catch (_) {}
 
-    // 直接使用标准列名插入（表结构已在初始化时固定）
+    // D1 优先存储策略：同时存储 text_content 和 html_content 到 D1，R2 作为可选备份
     await db.prepare(`
-      INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key, email_content, text_content, html_content)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       mailboxId,
       sender,
@@ -1394,7 +1376,10 @@ export async function handleEmailReceive(request, db, env) {
       verificationCode || null,
       preview || null,
       'mail-eml',
-      objectKey || ''
+      objectKey || '',
+      eml || '',
+      text || '',
+      html || ''
     ).run();
 
     return Response.json({ success: true });

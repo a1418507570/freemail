@@ -243,3 +243,127 @@ export function clearAllCache() {
   CACHE.lastClearTime = Date.now();
 }
 
+/**
+ * LRU 缓存类
+ * 使用 Map 数据结构实现 LRU（最近最少使用）缓存淘汰策略
+ */
+class LRUCache {
+  /**
+   * @param {number} capacity - 缓存容量
+   * @param {number} ttl - 缓存过期时间（毫秒）
+   */
+  constructor(capacity = 1000, ttl = 3600000) {
+    this.capacity = capacity;
+    this.ttl = ttl;
+    this.cache = new Map();
+  }
+
+  /**
+   * 获取缓存值
+   * @param {string} key - 缓存键
+   * @returns {any|null} 缓存值，不存在或过期返回 null
+   */
+  get(key) {
+    if (!this.cache.has(key)) {
+      return null;
+    }
+
+    const item = this.cache.get(key);
+
+    // 检查是否过期
+    if (Date.now() - item.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    // LRU: 将访问的项移到 Map 末尾（删除后重新插入）
+    this.cache.delete(key);
+    this.cache.set(key, item);
+
+    return item.value;
+  }
+
+  /**
+   * 设置缓存值
+   * @param {string} key - 缓存键
+   * @param {any} value - 缓存值
+   */
+  set(key, value) {
+    // 如果 key 已存在，先删除（更新时间戳）
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    }
+
+    // 检查容量，如果超过则删除最旧的项（Map 的第一个元素）
+    if (this.cache.size >= this.capacity) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    // 添加新项
+    this.cache.set(key, {
+      value,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * 删除缓存项
+   * @param {string} key - 缓存键
+   */
+  delete(key) {
+    this.cache.delete(key);
+  }
+
+  /**
+   * 清空所有缓存
+   */
+  clear() {
+    this.cache.clear();
+  }
+
+  /**
+   * 获取当前缓存大小
+   * @returns {number}
+   */
+  size() {
+    return this.cache.size;
+  }
+}
+
+/**
+ * 邮件内容缓存实例
+ * 容量：1000 封邮件
+ * TTL：1 小时（3600000 毫秒）
+ */
+const emailContentCache = new LRUCache(1000, 3600000);
+
+/**
+ * 缓存邮件内容
+ * @param {string|number} emailId - 邮件ID
+ * @param {object} content - 邮件内容对象 { text_content, html_content, ... }
+ */
+export function cacheEmailContent(emailId, content) {
+  const key = `email_content_${emailId}`;
+  emailContentCache.set(key, content);
+}
+
+/**
+ * 获取缓存的邮件内容
+ * @param {string|number} emailId - 邮件ID
+ * @returns {object|null} 邮件内容对象，不存在或过期返回 null
+ */
+export function getCachedEmailContent(emailId) {
+  const key = `email_content_${emailId}`;
+  return emailContentCache.get(key);
+}
+
+/**
+ * 使邮件内容缓存失效
+ * @param {string|number} emailId - 邮件ID
+ */
+export function invalidateEmailContentCache(emailId) {
+  const key = `email_content_${emailId}`;
+  emailContentCache.delete(key);
+}
+
