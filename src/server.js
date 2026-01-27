@@ -107,10 +107,9 @@ export default {
       // 读取原始邮件内容
       let textContent = '';
       let htmlContent = '';
-      let rawBuffer = null;
       try {
         const resp = new Response(message.raw);
-        rawBuffer = await resp.arrayBuffer();
+        const rawBuffer = await resp.arrayBuffer();
         const rawText = await new Response(rawBuffer).text();
         const parsed = parseEmailBody(rawText);
         textContent = parsed.text || '';
@@ -121,29 +120,25 @@ export default {
         htmlContent = '';
       }
 
+      // 安全截断内容以符合 D1 2MB/行限制（保守设置为 400KB 每字段）
+      const truncateByBytes = (str, maxBytes) => {
+        if (!str) return '';
+        const encoder = new TextEncoder();
+        const encoded = encoder.encode(str);
+        if (encoded.length <= maxBytes) return str;
+        // 截断并解码，处理可能的不完整 UTF-8 序列
+        const truncated = encoded.slice(0, maxBytes);
+        try {
+          return new TextDecoder('utf-8', { fatal: false }).decode(truncated);
+        } catch (_) {
+          return str.slice(0, Math.floor(maxBytes / 3)); // 回退到字符截断
+        }
+      };
+      textContent = truncateByBytes(textContent, 400 * 1024);
+      htmlContent = truncateByBytes(htmlContent, 400 * 1024);
+
       const mailbox = extractEmail(resolvedRecipient || toHeader);
       const sender = extractEmail(fromHeader);
-
-      // 存储到 R2
-      const r2 = env.MAIL_EML;
-      let objectKey = '';
-      try {
-        const now = new Date();
-        const y = now.getUTCFullYear();
-        const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-        const d = String(now.getUTCDate()).padStart(2, '0');
-        const hh = String(now.getUTCHours()).padStart(2, '0');
-        const mm = String(now.getUTCMinutes()).padStart(2, '0');
-        const ss = String(now.getUTCSeconds()).padStart(2, '0');
-        const keyId = (globalThis.crypto?.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const safeMailbox = (mailbox || 'unknown').toLowerCase().replace(/[^a-z0-9@._-]/g, '_');
-        objectKey = `${y}/${m}/${d}/${safeMailbox}/${hh}${mm}${ss}-${keyId}.eml`;
-        if (r2 && rawBuffer) {
-          await r2.put(objectKey, new Uint8Array(rawBuffer), { httpMetadata: { contentType: 'message/rfc822' } });
-        }
-      } catch (e) {
-        console.error('R2 put failed:', e);
-      }
 
       // 生成预览和验证码
       const preview = (() => {
@@ -188,7 +183,7 @@ export default {
 
       // 插入消息记录
       await DB.prepare(`
-        INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, r2_bucket, r2_object_key)
+        INSERT INTO messages (mailbox_id, sender, to_addrs, subject, verification_code, preview, text_content, html_content)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         mailboxId,
@@ -197,8 +192,8 @@ export default {
         subject || '(无主题)',
         verificationCode || null,
         preview || null,
-        'mail-eml',
-        objectKey || ''
+        textContent || '',
+        htmlContent || ''
       ).run();
     } catch (err) {
       console.error('Email event handling error:', err);
