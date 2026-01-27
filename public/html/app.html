@@ -1,11 +1,11 @@
 <div class="topbar">
   <div class="brand">
     <span class="brand-icon">📧</span>
-    <span class="brand-text">Rubyの临时邮箱</span>
+    <span class="brand-text">iDing's临时邮箱</span>
   </div>
   <div id="role-badge" class="role-badge" title="欢迎用户："></div>
   <div class="nav-actions">
-    <a id="repo" class="btn btn-ghost" href="https://github.com/a1418507570/freemail" target="_blank" rel="noopener noreferrer" title="GitHub 开源仓库">
+    <a id="repo" class="btn btn-ghost" href="https://github.com/idinging/freemail" target="_blank" rel="noopener noreferrer" title="GitHub 开源仓库">
       <span class="btn-icon">🔗</span>
       <span class="btn-text">GitHub</span>
     </a>
@@ -92,6 +92,14 @@
                 <span class="btn-icon">🔄</span>
                 <span>刷新邮件 📬</span>
               </button>
+              <button id="forward-setting" class="btn btn-ghost" style="width:100%">
+                <span class="btn-icon">↪️</span>
+                <span>转发设置</span>
+              </button>
+              <button id="toggle-favorite" class="btn btn-ghost" style="width:100%">
+                <span class="btn-icon" id="favorite-icon">☆</span>
+                <span id="favorite-text">收藏邮箱</span>
+              </button>
             </div>
           </div>
           
@@ -152,9 +160,9 @@
             <button id="tab-inbox" class="seg-btn" aria-pressed="true">收件箱</button>
             <button id="tab-sent" class="seg-btn" aria-pressed="false">发件箱</button>
           </div>
-          <div id="list-loading" class="loading-indicator" style="pointer-events:none" role="status" aria-live="polite">
-            <div class="spinner"></div>
-            <span>加载中…</span>
+          <div id="list-status" class="loading-indicator" style="pointer-events:none" role="status" aria-live="polite">
+            <div id="list-spinner" class="spinner"></div>
+            <span id="list-status-text">加载中…</span>
           </div>
         </div>
         <div class="list-viewport" style="position:relative;contain:layout paint;isolation:isolate;">
@@ -223,7 +231,7 @@
           </div>
           <div class="field-group">
             <label class="field-label">发件名称（可选）</label>
-            <input id="compose-from-name" class="input field-input" type="text" placeholder="例如：Ruby 支持团队" />
+            <input id="compose-from-name" class="input field-input" type="text" placeholder="例如：iDing 支持团队" />
           </div>
           <div class="field-group">
             <label class="field-label">主题</label>
