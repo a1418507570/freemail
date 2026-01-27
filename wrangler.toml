@@ -11,7 +11,10 @@ database_id = "c82663ac-62b6-4ba6-be81-cbe297f2a3dd" # 你的database_id
 # 登录会话过期时间（单位：天，默认7天）
 # 环境变量
 [vars]
-# FORWARD_RULES="[{"prefix":"vip","email":"a@example.com"},{"prefix":"*","email":"2141083706@qq.com"}]"
+# 在 Cloudflare Dashboard -> Workers -> Settings -> Variables 中配置真实值
+ADMIN_PASSWORD = "CHANGE_ME"
+JWT_TOKEN = "CHANGE_ME"
+MAIL_DOMAIN = "example.com"
 
 
 # 静态资源目录（Workers + Assets）
@@ -19,12 +22,6 @@ database_id = "c82663ac-62b6-4ba6-be81-cbe297f2a3dd" # 你的database_id
 directory = "public"
 # 显式指定绑定名，确保在 Worker 中通过 env.ASSETS 可用
 binding = "ASSETS"
-
-
-# R2 存储桶绑定（用于保存完整 EML 内容）
-[[r2_buckets]]
-binding = "MAIL_EML"
-bucket_name = "mail-eml"
 
 # wrangler.toml (wrangler v3.88.0^) 日志服务
 # [observability.logs]
